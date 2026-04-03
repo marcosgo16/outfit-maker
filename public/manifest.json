@@ -1,0 +1,14 @@
+{
+  "name": "Outfit Maker",
+  "short_name": "Outfit",
+  "description": "Tu armario personal",
+  "start_url": "/outfit-maker/",
+  "display": "standalone",
+  "background_color": "#F5F0E8",
+  "theme_color": "#1C2B4A",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/outfit-maker/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/outfit-maker/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
