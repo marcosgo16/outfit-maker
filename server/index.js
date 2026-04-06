@@ -120,6 +120,46 @@ app.put("/api/state", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/api/ai", requireAuth, async (req, res) => {
+  const { wardrobe, outfits, question } = req.body ?? {};
+  if (!question) return res.status(400).json({ error: "Falta question" });
+
+  const context = `
+Armario del usuario:
+${JSON.stringify(wardrobe ?? [], null, 2)}
+
+Outfits guardados:
+${JSON.stringify(outfits ?? [], null, 2)}
+  `.trim();
+
+  const prompt = `Eres un asistente de moda personal. Tienes acceso al armario y outfits del usuario.
+
+${context}
+
+Pregunta del usuario: ${question}
+
+Responde en español, de forma concisa y útil.`;
+
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      }
+    );
+    const data = await r.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Sin respuesta de Gemini");
+    res.json({ reply: text });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
+
 const PORT = Number(process.env.PORT) || 5050;
 const uri = process.env.MONGODB_URI;
 
