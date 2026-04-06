@@ -697,7 +697,7 @@ export default function App() {
     <div style={S.overlay} onClick={e => { if (e.target === e.currentTarget) setAiModal(null); }}>
       <div style={{...S.modal, maxHeight:"80vh", display:"flex", flexDirection:"column"}}>
         <div style={S.mHandle} />
-        <div style={{...S.mTitle, marginBottom:4}}>Asistente IA ✨</div>
+        <div style={{...S.mTitle, marginBottom:4}}>Boris Izaguirre</div>
         <div style={{fontSize:11, color:cl.stone, marginBottom:12}}>Pregunta sobre tu outfit o armario</div>
         <div style={{flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:10, marginBottom:12, minHeight:0}}>
           {aiMessages.map((m, i) => (
