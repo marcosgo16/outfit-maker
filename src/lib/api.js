@@ -55,21 +55,3 @@ export async function putRemoteState({ wardrobe, outfits }) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
-
-/** Metadatos de producto desde la URL (servidor lee og:image / og:title). */
-export async function postProductPreview(productUrl) {
-  const r = await fetch(url("/api/preview"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: productUrl }),
-  });
-  const text = await r.text();
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error(text || "Error al obtener la vista previa");
-  }
-  if (!r.ok) throw new Error(body.error || text);
-  return body;
-}

@@ -3,7 +3,6 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import { verifyGoogleIdToken, signSessionToken, verifySessionToken } from "./auth.js";
-import { fetchProductPreview } from "./preview.js";
 
 const UserStateSchema = new mongoose.Schema(
   {
@@ -21,7 +20,7 @@ const UserState =
   mongoose.models.UserState || mongoose.model("UserState", UserStateSchema);
 
 const app = express();
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(
   cors({
     origin: (origin, cb) => cb(null, true),
@@ -51,20 +50,6 @@ function requireAuth(req, res, next) {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
-});
-
-/** Extrae título e imagen desde la URL de una ficha de producto (Open Graph). */
-app.post("/api/preview", async (req, res) => {
-  const { url } = req.body ?? {};
-  if (!url || typeof url !== "string") {
-    return res.status(400).json({ error: "Falta url" });
-  }
-  try {
-    const data = await fetchProductPreview(url);
-    res.json(data);
-  } catch (e) {
-    res.status(422).json({ error: String(e.message || e) });
-  }
 });
 
 app.post("/api/auth/google", async (req, res) => {

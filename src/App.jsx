@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
-import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, postProductPreview } from "./lib/api.js";
+import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth } from "./lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
 
 const SLOTS = [
@@ -33,6 +33,9 @@ const CATS = ["Tops","Camisas","Jerseys","Chaquetas","Pantalones","Calzado","Acc
 
 // Each user starts with an empty wardrobe — data lives in their own localStorage
 const EMPTY_WARDROBE = [];
+
+/** Límite aproximado para data URLs en JSON (localStorage / Mongo). */
+const MAX_IMAGE_DATA_URL_CHARS = 2_400_000;
 
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
@@ -161,6 +164,7 @@ export default function App() {
   const [authVersion, setAuthVersion] = useState(0);
   const [user, setUser]         = useState(null);
   const saveTimer = useRef(null);
+  const imageFileInputRef = useRef(null);
   const [outfit, setOutfit]     = useState({});
   const [notes, setNotes]       = useState("");
   const [editId, setEditId]     = useState(null);
@@ -175,14 +179,68 @@ export default function App() {
   const [newEmoji, setNewEmoji] = useState("👕");
   const [newColor, setNewColor] = useState(COLORS[0]);
   const [newColorName, setNewColorName] = useState("");
-  const [newProductUrl, setNewProductUrl] = useState("");
   const [newImageUrl, setNewImageUrl] = useState("");
-  const [previewLoading, setPreviewLoading] = useState(false);
 
   const showToast = useCallback((msg) => {
     setToast({ msg, on:true });
     setTimeout(() => setToast(t => ({...t, on:false})), 2200);
   }, []);
+
+  const applyImageDataUrl = useCallback((dataUrl) => {
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+      showToast("Tiene que ser una imagen");
+      return;
+    }
+    if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {
+      showToast("Imagen demasiado grande; prueba otra más pequeña");
+      return;
+    }
+    setNewImageUrl(dataUrl);
+  }, [showToast]);
+
+  const onPickImageFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(new Error("read"));
+        r.readAsDataURL(f);
+      });
+      applyImageDataUrl(dataUrl);
+    } catch {
+      showToast("No se pudo leer la imagen");
+    }
+    e.target.value = "";
+  };
+
+  const onPasteImage = useCallback(
+    (e) => {
+      if (tab !== "wardrobe") return;
+      if (e.target && typeof e.target.closest === "function" && e.target.closest("input, textarea")) return;
+      const items = e.clipboardData?.items;
+      if (!items?.length) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (!file) return;
+          const r = new FileReader();
+          r.onload = () => applyImageDataUrl(r.result);
+          r.onerror = () => showToast("No se pudo pegar la imagen");
+          r.readAsDataURL(file);
+          break;
+        }
+      }
+    },
+    [tab, applyImageDataUrl, showToast]
+  );
+
+  useEffect(() => {
+    window.addEventListener("paste", onPasteImage);
+    return () => window.removeEventListener("paste", onPasteImage);
+  }, [onPasteImage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,32 +337,12 @@ export default function App() {
           setModal(null);
           setRenamingId(null);
           setRenameVal("");
-          setNewProductUrl("");
           setNewImageUrl("");
           setSync((prev) => ({ ...prev, mode: "local", needLogin: true, fromError: true }));
         });
     }, 500);
     return () => clearTimeout(saveTimer.current);
   }, [wardrobe, saved, initDone]);
-
-  const fetchProductFromUrl = async () => {
-    const u = newProductUrl.trim();
-    if (!u) { showToast("Pega el enlace del producto"); return; }
-    if (!hasRemoteApi()) { showToast("La vista previa requiere el servidor API"); return; }
-    setPreviewLoading(true);
-    try {
-      const data = await postProductPreview(u);
-      if (data.title && !newName.trim()) setNewName(data.title);
-      if (data.imageUrl) setNewImageUrl(data.imageUrl);
-      if (data.productUrl) setNewProductUrl(data.productUrl);
-      showToast("Datos obtenidos ✓");
-    } catch (e) {
-      const msg = typeof e?.message === "string" ? e.message : String(e);
-      showToast(msg.length > 90 ? `${msg.slice(0, 90)}…` : msg);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
 
   const onGoogleSuccess = async (credentialResponse) => {
     try {
@@ -331,8 +369,8 @@ export default function App() {
     setRenameVal("");
     setFilterCat("Todos");
     setTab("builder");
-    setNewProductUrl("");
     setNewImageUrl("");
+    if (imageFileInputRef.current) imageFileInputRef.current.value = "";
     setSync((prev) => ({ ...prev, mode: "local", needLogin: true }));
     showToast("Sesión cerrada");
   };
@@ -385,10 +423,10 @@ export default function App() {
       color: newColor.hex,
       colorName: newColorName.trim()||newColor.name,
       ...(newImageUrl ? { imageUrl: newImageUrl } : {}),
-      ...(newProductUrl.trim() ? { productUrl: newProductUrl.trim() } : {}),
     }]);
     setNewName(""); setNewBrand(""); setNewColorName("");
-    setNewProductUrl(""); setNewImageUrl("");
+    setNewImageUrl("");
+    if (imageFileInputRef.current) imageFileInputRef.current.value = "";
     showToast("Prenda añadida ✓");
   };
 
@@ -541,13 +579,15 @@ export default function App() {
             <div style={S.fg}><label style={S.flbl}>Nombre</label><input style={S.finput} placeholder="Ej: Chinos beige" value={newName} onChange={e => setNewName(e.target.value)} /></div>
             <div style={S.fg}><label style={S.flbl}>Marca</label><input style={S.finput} placeholder="Ej: Ralph Lauren" value={newBrand} onChange={e => setNewBrand(e.target.value)} /></div>
             <div style={S.fg}>
-              <label style={S.flbl}>Enlace del producto (opcional)</label>
+              <label style={S.flbl}>Foto (opcional)</label>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                <input style={{...S.finput, flex:1, minWidth:140}} placeholder="https://…" value={newProductUrl} onChange={e => setNewProductUrl(e.target.value)} />
-                <button type="button" style={{...S.btnSm, ...S.btnSmP, opacity: hasRemoteApi() ? 1 : 0.5}} disabled={previewLoading || !hasRemoteApi()} onClick={fetchProductFromUrl}>{previewLoading ? "…" : "Obtener foto"}</button>
+                <input ref={imageFileInputRef} type="file" accept="image/*" style={{ fontSize:12, maxWidth:"100%" }} onChange={onPickImageFile} />
+                {newImageUrl ? (
+                  <button type="button" style={{...S.btnSm, ...S.btnSmD}} onClick={() => { setNewImageUrl(""); if (imageFileInputRef.current) imageFileInputRef.current.value = ""; }}>Quitar foto</button>
+                ) : null}
               </div>
               <div style={{ fontSize:10, color:cl.stone, marginTop:6, lineHeight:1.45 }}>
-                Pega la URL de la ficha (Shein, deportivas, etc.). No hay API pública por ID: el servidor lee título e imagen de la página (Open Graph). Algunas tiendas bloquean robots y puede fallar.
+                Sube una imagen desde el ordenador o <strong>pega una captura</strong> con Ctrl+V estando en la pestaña Armario.
               </div>
               {newImageUrl ? <img src={newImageUrl} alt="" style={{ marginTop:8, maxWidth:130, maxHeight:130, objectFit:"cover", borderRadius:10, border:`1px solid ${cl.border}` }} /> : null}
             </div>
@@ -594,12 +634,7 @@ export default function App() {
               {filteredW.map(item => (
                 <div key={item.id} style={S.itemCard}>
                   <div style={{ ...S.itemEm, display:"flex", alignItems:"center", justifyContent:"center" }}><ItemVisual item={item} size={36} /></div>
-                  <div style={S.itemName}>
-                    {item.name}
-                    {item.productUrl ? (
-                      <a href={item.productUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ marginLeft:5, fontSize:11 }} title="Abrir en la tienda">↗</a>
-                    ) : null}
-                  </div>
+                  <div style={S.itemName}>{item.name}</div>
                   <div style={S.itemBrand}>{item.brand}</div>
                   <div style={S.itemColor}><span style={S.dot(item.color)}></span>{item.colorName}</div>
                   <button style={S.itemDel} onClick={() => deleteItem(item.id)}>✕</button>
