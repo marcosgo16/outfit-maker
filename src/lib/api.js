@@ -55,3 +55,16 @@ export async function putRemoteState({ wardrobe, outfits }) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
+
+export function getApiUrl(path) {
+  const env = import.meta.env.VITE_API_URL?.trim();
+  const root = env ? env.replace(/\/$/, "") : (import.meta.env.DEV ? "" : "");
+  return root ? `${root}${path}` : path;
+}
+
+export function getAuthHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const t = getSessionToken();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  return headers;
+}

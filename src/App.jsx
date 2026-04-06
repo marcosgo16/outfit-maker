@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
-import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth } from "./lib/api.js";
+import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, getApiUrl, getAuthHeaders } from "./lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
 
 const SLOTS = [
@@ -171,6 +171,10 @@ export default function App() {
   const [filterCat, setFilterCat] = useState("Todos");
   const [modal, setModal]       = useState(null);
   const [renamingId, setRenamingId] = useState(null);
+  const [aiModal, setAiModal] = useState(null); // { outfit }
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
   const [renameVal, setRenameVal]   = useState("");
   const [toast, setToast]       = useState({ msg:"", on:false });
   const [newName, setNewName]   = useState("");
@@ -442,6 +446,26 @@ export default function App() {
 
   const showGoogleLogin = hasGoogleAuth() && !user && initDone;
 
+  const sendAiMessage = async () => {
+    if (!aiInput.trim() || aiLoading) return;
+    const question = aiInput.trim();
+    setAiInput("");
+    setAiMessages(prev => [...prev, { role: "user", text: question }]);
+    setAiLoading(true);
+    try {
+      const r = await fetch(getApiUrl("/api/ai"), {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ wardrobe, outfits: saved, question }),
+      });
+      const data = await r.json();
+      setAiMessages(prev => [...prev, { role: "ai", text: data.reply || data.error }]);
+    } catch (e) {
+      setAiMessages(prev => [...prev, { role: "ai", text: "Error al conectar con la IA" }]);
+    }
+    setAiLoading(false);
+  };
+  
   return (
     <div style={S.app}>
       {!initDone && (
@@ -564,6 +588,7 @@ export default function App() {
                   <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => loadOutfit(o)}>Editar</button>
                   <button style={{...S.btnSm, ...S.btnSmD}} onClick={() => deleteOutfit(o.id)}>Eliminar</button>
                   <button style={{...S.btnSm, background:cl.tag, color:cl.navy}} onClick={() => startRename(o.id)}>Renombrar</button>
+                  <button style={{...S.btnSm, background:"#f0e6ff", color:"#6b21a8"}} onClick={() => { setAiModal({ outfit: o }); setAiMessages([{ role:"ai", text:`Hola, cuéntame qué quieres saber sobre tu outfit "${o.name}" o tu armario en general.` }]); }}>Boris</button>
                 </div>
               </div>
             );
@@ -667,6 +692,37 @@ export default function App() {
           </div>
         </div>
       )}
+
+  {aiModal && (
+    <div style={S.overlay} onClick={e => { if (e.target === e.currentTarget) setAiModal(null); }}>
+      <div style={{...S.modal, maxHeight:"80vh", display:"flex", flexDirection:"column"}}>
+        <div style={S.mHandle} />
+        <div style={{...S.mTitle, marginBottom:4}}>Asistente IA ✨</div>
+        <div style={{fontSize:11, color:cl.stone, marginBottom:12}}>Pregunta sobre tu outfit o armario</div>
+        <div style={{flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:10, marginBottom:12, minHeight:0}}>
+          {aiMessages.map((m, i) => (
+            <div key={i} style={{
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              background: m.role === "user" ? cl.navy : cl.tag,
+              color: m.role === "user" ? cl.cream : cl.navy,
+              padding:"9px 13px", borderRadius:14, fontSize:13, maxWidth:"85%", lineHeight:1.5
+            }}>{m.text}</div>
+          ))}
+          {aiLoading && <div style={{alignSelf:"flex-start", background:cl.tag, padding:"9px 13px", borderRadius:14, fontSize:13, color:cl.stone}}>Pensando…</div>}
+        </div>
+        <div style={{display:"flex", gap:8}}>
+          <input
+            style={{...S.finput, flex:1}}
+            placeholder="Escribe tu pregunta…"
+            value={aiInput}
+            onChange={e => setAiInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") sendAiMessage(); }}
+          />
+          <button style={{...S.btn, ...S.btnP, flex:"none", padding:"10px 16px"}} onClick={sendAiMessage}>→</button>
+        </div>
+      </div>
+    </div>
+  )}
 
       {/* TOAST */}
       <div style={{...S.toast, ...(toast.on ? S.toastShow : {})}}>{toast.msg}</div>
