@@ -123,22 +123,45 @@ app.put("/api/state", requireAuth, async (req, res) => {
 app.post("/api/ai", requireAuth, async (req, res) => {
   const { wardrobe, outfits, question } = req.body ?? {};
   if (!question) return res.status(400).json({ error: "Falta question" });
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: "Falta GEMINI_API_KEY en el servidor (.env)" });
+  }
+
+  // Evita mandar base64 al LLM (imageUrl puede ser enorme).
+  const sanitizeItem = (x) => {
+    if (!x || typeof x !== "object") return x;
+    // eslint-disable-next-line no-unused-vars
+    const { imageUrl, ...rest } = x;
+    return rest;
+  };
+
+  const safeWardrobe = Array.isArray(wardrobe) ? wardrobe.slice(0, 200).map(sanitizeItem) : [];
+  const safeOutfits = Array.isArray(outfits)
+    ? outfits.slice(0, 200).map((o) => {
+        if (!o || typeof o !== "object") return o;
+        const slots = o.slots && typeof o.slots === "object" ? o.slots : {};
+        const safeSlots = {};
+        for (const [k, v] of Object.entries(slots)) safeSlots[k] = sanitizeItem(v);
+        return { ...o, slots: safeSlots };
+      })
+    : [];
 
   const context = `
 Armario del usuario:
-${JSON.stringify(wardrobe ?? [], null, 2)}
+${JSON.stringify(safeWardrobe, null, 2)}
 
 Outfits guardados:
-${JSON.stringify(outfits ?? [], null, 2)}
+${JSON.stringify(safeOutfits, null, 2)}
   `.trim();
 
-  const prompt = `Eres un asistente de moda personal. Tienes acceso al armario y outfits del usuario.
+  const promptRaw = `Eres un asistente de moda personal. Tienes acceso al armario y outfits del usuario.
 
 ${context}
 
 Pregunta del usuario: ${question}
 
 Responde en español, de forma concisa y útil.`;
+  const prompt = promptRaw.length > 22_000 ? `${promptRaw.slice(0, 22_000)}\n\n(Nota: contexto recortado por tamaño.)` : promptRaw;
 
   try {
     const r = await fetch(
@@ -151,7 +174,14 @@ Responde en español, de forma concisa y útil.`;
         }),
       }
     );
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg =
+        data?.error?.message ||
+        data?.error?.status ||
+        `Gemini error ${r.status}`;
+      return res.status(502).json({ error: msg });
+    }
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error("Sin respuesta de Gemini");
     res.json({ reply: text });
