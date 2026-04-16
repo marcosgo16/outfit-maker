@@ -238,6 +238,69 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     };
   }
 
+  /** Si el modelo describe un outfit en texto pero no envía JSON con ids, intenta emparejar nombres del armario (sin reglas de “tema”). */
+  function extractProposalFromReplyText(replyText, items) {
+    const blob = String(replyText || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-z0-9ñ\s]/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (blob.length < 15) return null;
+
+    const catToSlot = {
+      Chaquetas: "outerwear",
+      Tops: "top",
+      Camisas: "top",
+      Jerseys: "mid",
+      Pantalones: "bottom",
+      Calzado: "shoes",
+      Accesorios: "accessory",
+    };
+
+    const normName = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/[^a-z0-9ñ\s]/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const best = {};
+    const bestLen = {};
+
+    for (const it of items) {
+      if (!it || !it.name) continue;
+      const slot = catToSlot[it.category];
+      if (!slot) continue;
+      const n = normName(it.name);
+      if (n.length < 3) continue;
+      const inBlob = blob.includes(n);
+      const words = n.split(" ").filter((w) => w.length > 3);
+      const partial = words.length >= 2 && words.every((w) => blob.includes(w));
+      if (!inBlob && !partial) continue;
+      const score = inBlob ? n.length + 100 : words.length * 10;
+      if (score > (bestLen[slot] || 0)) {
+        best[slot] = it;
+        bestLen[slot] = score;
+      }
+    }
+
+    const slots = {};
+    for (const k of Object.keys(best)) slots[k] = best[k].id;
+    if (!(slots.top && slots.bottom && slots.shoes)) return null;
+
+    return {
+      confidence: null,
+      title: "Conjunto sugerido",
+      notes: "",
+      rationale: "Emparejado con el texto y prendas de tu armario.",
+      slots,
+    };
+  }
+
   function extractJsonObjectAnywhere(text) {
     if (typeof text !== "string") return null;
     const trimmed = text.trim();
@@ -365,6 +428,7 @@ COHERENCIA ENTRE TEXTO Y "proposal" (OBLIGATORIA — lo razona el modelo, sin at
 - Si "proposal" no es null, en "reply" debes referirte SOLO a las prendas cuyos ids figuran en proposal.slots. Usa los nombres exactos que aparecen en el armario para esos ids.
 - Si en el texto quieres sugerir otras prendas distintas a las de proposal.slots, entonces pon "proposal": null y explica solo en texto.
 - No inventes marcas ni prendas que no existan en el JSON del armario; cada id de proposal debe existir en el armario.
+- Siempre que recomiendes un outfit concreto con prendas del armario, incluye el JSON "proposal" con los ids (y "confidence" si quieres); así el usuario puede guardarlo en la tarjeta.
 
 SALIDA OBLIGATORIA (JSON puro, sin markdown):
 Devuelve SIEMPRE un JSON con esta forma:
@@ -451,6 +515,10 @@ Responde en español, de forma concisa y útil.`.trim();
         reply = `${reply}\n\n${extracted.after}`;
       }
       proposal = validateProposal(parsed.proposal, safeWardrobe);
+    }
+    if (!proposal) {
+      const inferred = extractProposalFromReplyText(reply, safeWardrobe);
+      if (inferred) proposal = validateProposal(inferred, safeWardrobe);
     }
 
     reply = enrichShortReply(reply, user, proposal, safeWardrobe);
