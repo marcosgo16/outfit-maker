@@ -128,6 +128,8 @@ const BASE_S = {
   emptyP:   { fontSize:13, lineHeight:1.6 },
   toast:    { position:"fixed", bottom:22, left:"50%", transform:"translateX(-50%) translateY(70px)", background:cl.navy, color:cl.cream, padding:"9px 18px", borderRadius:30, fontSize:13, fontWeight:500, zIndex:999, whiteSpace:"nowrap", pointerEvents:"none", transition:"transform .3s" },
   toastShow:{ transform:"translateX(-50%) translateY(0)" },
+  fab:      { position:"fixed", right:18, bottom:18, zIndex:150, border:"none", background:cl.navy, color:cl.cream, width:56, height:56, borderRadius:18, cursor:"pointer", boxShadow:"0 10px 24px rgba(28,43,74,.22)", display:"flex", alignItems:"center", justifyContent:"center" },
+  fabIco:   { fontSize:22, lineHeight:1 },
 };
 
 function ItemVisual({ item, size = 36, imgStyle }) {
@@ -533,6 +535,14 @@ export default function App() {
     }
     setAiLoading(false);
   };
+
+  const openAiChat = useCallback(() => {
+    setAiModal({ outfit: null });
+    setAiMessages([
+      { role: "ai", text: "Hola. Pregúntame sobre tu armario y tus outfits: combinaciones, colores, ideas por ocasión/clima, qué te falta para completar looks…" },
+    ]);
+    setAiInput("");
+  }, []);
   
   return (
     <div style={S.page}>
@@ -670,7 +680,6 @@ export default function App() {
                       <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => loadOutfit(o)}>Editar</button>
                       <button style={{...S.btnSm, ...S.btnSmD}} onClick={() => deleteOutfit(o.id)}>Eliminar</button>
                       <button style={{...S.btnSm, background:cl.tag, color:cl.navy}} onClick={() => startRename(o.id)}>Renombrar</button>
-                      <button style={{...S.btnSm, background:"#f0e6ff", color:"#6b21a8"}} onClick={() => { setAiModal({ outfit: o }); setAiMessages([{ role:"ai", text:`Hola, cuéntame qué quieres saber sobre tu outfit "${o.name}" o tu armario en general.` }]); }}>Boris</button>
                     </div>
                   </div>
                 );
@@ -825,6 +834,16 @@ export default function App() {
       </div>
     </div>
   )}
+
+      {/* BOTÓN GLOBAL CHAT IA */}
+      <button
+        type="button"
+        aria-label="Abrir chat de estilo"
+        style={S.fab}
+        onClick={openAiChat}
+      >
+        <span style={S.fabIco}>💬</span>
+      </button>
 
       {/* TOAST */}
       <div style={{...S.toast, ...(toast.on ? S.toastShow : {})}}>{toast.msg}</div>
