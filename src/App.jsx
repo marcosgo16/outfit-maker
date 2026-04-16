@@ -513,13 +513,14 @@ export default function App() {
     if (!aiInput.trim() || aiLoading) return;
     const question = aiInput.trim();
     setAiInput("");
+    const history = aiMessages.slice(-12);
     setAiMessages(prev => [...prev, { role: "user", text: question }]);
     setAiLoading(true);
     try {
       const r = await fetch(getApiUrl("/api/ai"), {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ wardrobe, outfits: saved, question }),
+        body: JSON.stringify({ wardrobe, outfits: saved, question, history }),
       });
       const data = await r.json();
       setAiMessages(prev => [...prev, { role: "ai", text: data.reply || data.error }]);

@@ -155,7 +155,7 @@ app.put("/api/state", requireAuth, async (req, res) => {
 });
 
 app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
-  const { wardrobe, outfits, question } = req.body ?? {};
+  const { wardrobe, outfits, question, history } = req.body ?? {};
   if (!question) return res.status(400).json({ error: "Falta question" });
   if (!GROQ_API_KEY) {
     return res.status(500).json({ error: "Falta GROQ_API_KEY en el servidor (.env)" });
@@ -206,6 +206,17 @@ ${context}
 Responde en español, de forma concisa y útil.`.trim();
   const system = systemRaw.length > 18_000 ? `${systemRaw.slice(0, 18_000)}\n\n(Nota: contexto recortado por tamaño.)` : systemRaw;
   const user = String(question).slice(0, 4000);
+  const safeHistory = Array.isArray(history) ? history : [];
+  const historyMsgs = safeHistory
+    .slice(-12)
+    .map((m) => {
+      const roleRaw = m?.role === "ai" ? "assistant" : m?.role;
+      const role = roleRaw === "assistant" || roleRaw === "user" ? roleRaw : null;
+      const content = typeof m?.text === "string" ? m.text : "";
+      if (!role || !content.trim()) return null;
+      return { role, content: content.slice(0, 800) };
+    })
+    .filter(Boolean);
 
   try {
     const r = await fetch(
@@ -221,6 +232,7 @@ Responde en español, de forma concisa y útil.`.trim();
           temperature: 0.7,
           messages: [
             { role: "system", content: system },
+            ...historyMsgs,
             { role: "user", content: user },
           ],
         }),
