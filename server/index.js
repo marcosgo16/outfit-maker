@@ -378,6 +378,58 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     };
   }
 
+  function userWantsConcreteRecommendation(q) {
+    const s = String(q || "").toLowerCase();
+    return (
+      s.includes("recomend") ||
+      s.includes("propón") ||
+      s.includes("propon") ||
+      s.includes("outfit") ||
+      s.includes("conjunto") ||
+      s.includes("qué me pongo") ||
+      s.includes("que me pongo") ||
+      s.includes("idea") ||
+      s.includes("ejemplo") ||
+      s.includes("alguno") ||
+      s.includes("alguna")
+    );
+  }
+
+  function enrichShortReply(reply, userQuestion, proposal, wardrobeItems) {
+    const trimmed = String(reply || "").trim();
+    if (trimmed.length >= 120) return trimmed;
+    if (!userWantsConcreteRecommendation(userQuestion)) return trimmed;
+
+    const byId = new Map(wardrobeItems.map((it) => [String(it?.id), it]));
+    const slotOrder = ["outerwear", "mid", "top", "bottom", "shoes", "accessory"];
+    const lines = [];
+    if (proposal?.slots && typeof proposal.slots === "object") {
+      for (const key of slotOrder) {
+        const id = proposal.slots[key];
+        if (id == null) continue;
+        const item = byId.get(String(id));
+        if (!item) continue;
+        const label = SLOT_RULES[key]?.label || key;
+        lines.push(`• ${label}: ${item.name}`);
+      }
+    }
+    if (lines.length) {
+      const note = [proposal.notes, proposal.rationale].filter(Boolean).join(" ").trim();
+      return (
+        trimmed +
+        (trimmed.length ? "\n\n" : "") +
+        "Te detallo el conjunto con prendas de tu armario:\n" +
+        lines.join("\n") +
+        (note ? `\n\n${note}` : "")
+      );
+    }
+    return (
+      trimmed +
+      (trimmed.length ? "\n\n" : "") +
+      "Para recomendarte algo con nombres concretos de tus prendas, dime la ocasión de hoy (trabajo, salida con amigos, paseo…) y si hace calor o frío. Si ves la tarjeta «Outfit propuesto» arriba, puedes aceptarla y guardarla."
+    );
+  }
+
   const context = `
 Armario del usuario:
 ${JSON.stringify(safeWardrobe, null, 2)}
@@ -400,6 +452,11 @@ FORMATO:
 - Si faltan datos del armario para responder, pregunta 1-2 cosas concretas (ocasión, clima, preferencias).
 - Solo cuando estés MUY seguro (alta confianza) y puedas construir un outfit con prendas EXACTAS del armario, incluye una propuesta estructurada.
 - Para referenciar prendas del armario, usa su campo id EXACTO (numérico o string).
+
+REGLA CRÍTICA PARA "reply":
+- El campo "reply" debe ser SIEMPRE útil: mínimo 2 frases cuando el usuario pida recomendación, outfit o ideas concretas.
+- Nunca respondas solo con una etiqueta o título suelto (por ejemplo solo "Un outfit casual veraniego" sin explicar nada más).
+- Si incluyes "proposal", en "reply" describe el outfit con los nombres de las prendas del armario y por qué encajan (clima, ocasión, colores).
 
 SALIDA OBLIGATORIA (JSON puro, sin markdown):
 Devuelve SIEMPRE un JSON con esta forma:
@@ -454,6 +511,7 @@ Responde en español, de forma concisa y útil.`.trim();
         body: JSON.stringify({
           model: GROQ_MODEL,
           temperature: 0.7,
+          max_tokens: 1400,
           messages: [
             { role: "system", content: system },
             ...historyMsgs,
@@ -494,6 +552,8 @@ Responde en español, de forma concisa y útil.`.trim();
         }
       }
     }
+
+    reply = enrichShortReply(reply, user, proposal, safeWardrobe);
 
     res.json({ reply, ...(proposal ? { proposal } : {}) });
   } catch (e) {
