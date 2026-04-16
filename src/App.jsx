@@ -507,13 +507,6 @@ export default function App() {
   const filteredW    = filterCat === "Todos" ? wardrobe : wardrobe.filter(i => i.category === filterCat);
   const wardrobeCats = ["Todos", ...new Set(wardrobe.map(i => i.category))];
 
-  const syncLabel =
-    sync.mode === "loading" ? "Cargando…" :
-    !hasGoogleAuth() ? "📴 Solo en el dispositivo" :
-    sync.mode === "cloud" ? "☁️ MongoDB + Google" :
-    sync.needLogin ? "Inicia sesión para la nube" :
-    "📴 Solo en el dispositivo";
-
   const showGoogleLogin = hasGoogleAuth() && !user && initDone;
 
   const sendAiMessage = async () => {
@@ -557,7 +550,6 @@ export default function App() {
         <div ref={hdrMeasureRef} style={{ ...S.hdr, maxWidth: S.app.maxWidth, margin: "0 auto" }}>
           <div><div style={S.hdrSub}>Marco's</div><div style={S.hdrH1}>Outfit Maker</div></div>
           <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, justifyContent:"flex-end", minWidth:0 }}>
-            <div style={S.hdrSync} title={sync.mode === "cloud" ? "Cuenta de Google vinculada a tu documento en MongoDB" : "Puedes usar la app solo en el navegador o iniciar sesión para guardar en la nube"}>{syncLabel}</div>
             <div style={S.hdrAuth}>
               {user && sync.mode === "cloud" && (
                 <>
