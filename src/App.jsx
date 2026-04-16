@@ -245,6 +245,7 @@ export default function App() {
   const [aiMessages, setAiMessages] = useState([]);
   const [aiInput, setAiInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiProposal, setAiProposal] = useState(null); // { confidence,title,notes,rationale,slots:{key:id} }
   const [renameVal, setRenameVal]   = useState("");
   const [toast, setToast]       = useState({ msg:"", on:false });
   const [newName, setNewName]   = useState("");
@@ -523,6 +524,7 @@ export default function App() {
         body: JSON.stringify({ wardrobe, outfits: saved, question, history }),
       });
       const data = await r.json();
+      if (data?.proposal) setAiProposal(data.proposal);
       setAiMessages(prev => [...prev, { role: "ai", text: data.reply || data.error }]);
     } catch (e) {
       setAiMessages(prev => [...prev, { role: "ai", text: "Error al conectar con la IA" }]);
@@ -532,11 +534,35 @@ export default function App() {
 
   const openAiChat = useCallback(() => {
     setAiModal({ outfit: null });
+    setAiProposal(null);
     setAiMessages([
       { role: "ai", text: "Hola. Pregúntame sobre tu armario y tus outfits: combinaciones, colores, ideas por ocasión/clima, qué te falta para completar looks…" },
     ]);
     setAiInput("");
   }, []);
+
+  const acceptAiProposal = useCallback(() => {
+    if (!aiProposal?.slots || typeof aiProposal.slots !== "object") return;
+    const slots = {};
+    for (const [k, id] of Object.entries(aiProposal.slots)) {
+      const item = wardrobe.find((x) => String(x.id) === String(id));
+      if (item) slots[k] = item;
+    }
+    if (!Object.keys(slots).length) return;
+    const date = new Date().toLocaleDateString("es-ES", { day:"2-digit", month:"short" });
+    const nameBase = (aiProposal.title || "").trim();
+    setSaved((prev) => [{
+      id: Date.now(),
+      name: nameBase || `Outfit ${prev.length + 1}`,
+      slots,
+      notes: (aiProposal.notes || aiProposal.rationale || "").trim(),
+      date,
+    }, ...prev]);
+    showToast("Outfit creado ✓");
+    setAiProposal(null);
+    setAiModal(null);
+    setTab("saved");
+  }, [aiProposal, wardrobe, showToast]);
   
   return (
     <div style={S.page}>
@@ -803,6 +829,35 @@ export default function App() {
         <div style={S.mHandle} />
         <div style={{...S.mTitle, marginBottom:4}}>Boris Izaguirre</div>
         <div style={{fontSize:11, color:cl.stone, marginBottom:12}}>Pregunta sobre tu outfit o armario</div>
+        {aiProposal && (
+          <div style={{...S.card, marginBottom:12, border:`1px solid ${cl.border}`}}>
+            <div style={{...S.cardHdr, marginBottom:8}}>
+              <div style={{...S.cardName, fontSize:13}}>Outfit propuesto</div>
+              <div style={{...S.cardDate, color:cl.stone}}>Confianza {Math.round((aiProposal.confidence || 0) * 100)}%</div>
+            </div>
+            {aiProposal.title ? <div style={{ fontWeight: 600, marginBottom: 8 }}>{aiProposal.title}</div> : null}
+            <div style={S.chips}>
+              {Object.entries(aiProposal.slots || {}).map(([key, id]) => {
+                const item = wardrobe.find((x) => String(x.id) === String(id));
+                if (!item) return null;
+                return (
+                  <span key={key} style={S.chip} title={key}>
+                    <span style={S.dot(item.color)}></span>
+                    <ItemVisual item={item} size={15} />
+                    <span>{item.name}</span>
+                  </span>
+                );
+              })}
+            </div>
+            {(aiProposal.rationale || aiProposal.notes) ? (
+              <div style={{...S.cardNote, fontStyle:"normal"}}>{aiProposal.rationale || aiProposal.notes}</div>
+            ) : null}
+            <div style={{...S.cardAct, marginTop:10}}>
+              <button style={{...S.btnSm, ...S.btnSmP}} onClick={acceptAiProposal}>Aceptar y guardar</button>
+              <button style={{...S.btnSm, background:cl.tag, color:cl.navy}} onClick={() => setAiProposal(null)}>Descartar</button>
+            </div>
+          </div>
+        )}
         <div style={{flex:1, overflowY:"auto", display:"flex", flexDirection:"column", gap:10, marginBottom:12, minHeight:0}}>
           {aiMessages.map((m, i) => (
             <div key={i} style={{

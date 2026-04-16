@@ -180,6 +180,60 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
       })
     : [];
 
+  const SLOT_RULES = {
+    outerwear: { label: "Chaqueta", cats: ["Chaquetas"] },
+    top: { label: "Top / Polo", cats: ["Tops", "Camisas"] },
+    mid: { label: "Jersey", cats: ["Jerseys"] },
+    bottom: { label: "Pantalón", cats: ["Pantalones"] },
+    shoes: { label: "Calzado", cats: ["Calzado"] },
+    accessory: { label: "Accesorio", cats: ["Accesorios"] },
+  };
+
+  function normalizeId(x) {
+    if (x === null || x === undefined) return null;
+    if (typeof x === "number" && Number.isFinite(x)) return String(x);
+    if (typeof x === "string") return x.trim() || null;
+    return null;
+  }
+
+  function validateProposal(proposalRaw, safeWardrobeItems) {
+    if (!proposalRaw || typeof proposalRaw !== "object") return null;
+    const slotsRaw = proposalRaw.slots && typeof proposalRaw.slots === "object" ? proposalRaw.slots : null;
+    if (!slotsRaw) return null;
+
+    const byId = new Map(safeWardrobeItems.map((it) => [String(it?.id), it]));
+    const slots = {};
+    for (const key of Object.keys(SLOT_RULES)) {
+      const id = normalizeId(slotsRaw[key]);
+      if (!id) continue;
+      const item = byId.get(String(id));
+      if (!item) continue;
+      const allowed = SLOT_RULES[key].cats;
+      if (allowed.length && !allowed.includes(item.category)) continue;
+      slots[key] = item.id;
+    }
+
+    const filledKeys = Object.keys(slots);
+    const hasCore = Boolean(slots.top && slots.bottom && slots.shoes);
+    if (!hasCore) return null;
+    if (filledKeys.length < 4) return null;
+
+    const confidence = typeof proposalRaw.confidence === "number" ? proposalRaw.confidence : 0;
+    if (!(confidence >= 0.75)) return null;
+
+    const title = typeof proposalRaw.title === "string" ? proposalRaw.title.trim().slice(0, 60) : "";
+    const notes = typeof proposalRaw.notes === "string" ? proposalRaw.notes.trim().slice(0, 240) : "";
+    const rationale = typeof proposalRaw.rationale === "string" ? proposalRaw.rationale.trim().slice(0, 280) : "";
+
+    return {
+      confidence,
+      title,
+      notes,
+      rationale,
+      slots,
+    };
+  }
+
   const context = `
 Armario del usuario:
 ${JSON.stringify(safeWardrobe, null, 2)}
@@ -200,6 +254,32 @@ FORMATO:
 - Sé conciso y práctico.
 - Da 2-4 propuestas o pasos accionables cuando tenga sentido.
 - Si faltan datos del armario para responder, pregunta 1-2 cosas concretas (ocasión, clima, preferencias).
+- Solo cuando estés MUY seguro (alta confianza) y puedas construir un outfit con prendas EXACTAS del armario, incluye una propuesta estructurada.
+- Para referenciar prendas del armario, usa su campo id EXACTO (numérico o string).
+
+SALIDA OBLIGATORIA (JSON puro, sin markdown):
+Devuelve SIEMPRE un JSON con esta forma:
+{
+  "reply": "texto en español",
+  "proposal": null | {
+    "confidence": 0.0-1.0,
+    "title": "nombre corto opcional",
+    "rationale": "por qué funciona (opcional)",
+    "notes": "nota corta (opcional)",
+    "slots": {
+      "outerwear": "<id>" | null,
+      "top": "<id>" | null,
+      "mid": "<id>" | null,
+      "bottom": "<id>" | null,
+      "shoes": "<id>" | null,
+      "accessory": "<id>" | null
+    }
+  }
+}
+Reglas para proposal:
+- Solo si confidence >= 0.85 y puedes rellenar al menos top+bottom+shoes y mínimo 4 slots en total.
+- No inventes prendas; si no existe en el armario, no propongas.
+- Si no puedes, pon "proposal": null.
 
 ${context}
 
@@ -248,7 +328,20 @@ Responde en español, de forma concisa y útil.`.trim();
     }
     const text = data.choices?.[0]?.message?.content;
     if (!text) throw new Error("Sin respuesta del modelo");
-    res.json({ reply: text });
+
+    let reply = text;
+    let proposal = null;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") {
+        if (typeof parsed.reply === "string" && parsed.reply.trim()) reply = parsed.reply.trim();
+        proposal = validateProposal(parsed.proposal, safeWardrobe);
+      }
+    } catch {
+      // Si el modelo no devuelve JSON válido, devolvemos texto plano.
+    }
+
+    res.json({ reply, ...(proposal ? { proposal } : {}) });
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
   }
